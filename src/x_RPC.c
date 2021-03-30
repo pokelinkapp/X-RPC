@@ -11,12 +11,12 @@
 #include <sys/time.h>
 #include <netdb.h>
 
-#define xRPC_BUFFER_SIZE 512
+#define xRPC_BUFFER_SIZE 4096
 
 char xRPC_Buffer[xRPC_BUFFER_SIZE];
 
 bool xRPC_RunServer = false;
-bool xRPC_RunClient = false;
+bool xRPC_RunServerLoop = false;
 
 int xRPC_opt = true;
 int xRPC_master_socket, xRPC_addrlen, xRPC_new_socket,
@@ -24,7 +24,11 @@ int xRPC_master_socket, xRPC_addrlen, xRPC_new_socket,
 int xRPC_max_sd;
 struct sockaddr_in xRPC_address;
 
-typedef msgpack_object* CALLBACK(msgpack_object_array*);
+typedef void CALLBACK(msgpack_object*, msgpack_packer*);
+
+size_t xRPC_CallBackSize = 0;
+char** xRPC_CallBackNames;
+CALLBACK** xRPC_CallBackFunctions;
 
 void xRPC_Server_FailedRequest() {
 	msgpack_sbuffer sbuf;
@@ -33,27 +37,16 @@ void xRPC_Server_FailedRequest() {
 	msgpack_sbuffer_init(&sbuf);
 	msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
 
-	msgpack_pack_char(&pk, 0);
+	msgpack_pack_char(&pk, 1);
 
 	send(xRPC_sd, sbuf.data, sbuf.size, 0);
-
-	msgpack_packer_free(&pk);
-	msgpack_sbuffer_destroy(&sbuf);
 }
-
-size_t xRPC_CallBackSize = 0;
-char** xRPC_CallBackNames;
-CALLBACK** xRPC_CallBackFunctions;
-
-struct timeval timeout;
 
 
 xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp, unsigned short maxClients) {
 	if (xRPC_RunServer) {
 		return xRPC_SERVER_STATUS_ACTIVE;
 	}
-
-	timeout.tv_sec = 2;
 
 	xRPC_RunServer = true;
 
@@ -91,7 +84,9 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 	xRPC_addrlen = sizeof(xRPC_address);
 
-	while (xRPC_RunServer) {
+	xRPC_RunServerLoop = true;
+
+	while (xRPC_RunServerLoop) {
 		FD_ZERO(&readfds);
 
 		FD_SET(xRPC_master_socket, &readfds);
@@ -109,7 +104,11 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 			}
 		}
 
-		xRPC_activity = select(xRPC_max_sd + 1, &readfds, NULL, NULL, &timeout);
+		xRPC_activity = select(xRPC_max_sd + 1, &readfds, NULL, NULL, 0);
+
+		if (xRPC_activity <= 0) {
+			continue;
+		}
 
 		if (FD_ISSET(xRPC_master_socket, &readfds)) {
 			if ((xRPC_new_socket = accept(xRPC_master_socket, (struct sockaddr*)&xRPC_address, (socklen_t*)&xRPC_addrlen)) < 0) {
@@ -134,78 +133,82 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 					close(xRPC_sd);
 					client_socket[i] = 0;
 				} else {
-					msgpack_unpacker unp;
 
-					bool result = msgpack_unpacker_init(&unp, xRPC_valread);
+					msgpack_object obj;
 
-					if (result) {
-						msgpack_unpacked und;
-						msgpack_unpack_return ret;
-						msgpack_unpacked_init(&und);
-						ret = msgpack_unpacker_next(&unp, &und);
-						switch (ret) {
-							case MSGPACK_UNPACK_SUCCESS: {
-								msgpack_object obj = und.data;
-								if (obj.type != MSGPACK_OBJECT_ARRAY) {
-									xRPC_Server_FailedRequest();
-									break;
-								}
+					msgpack_zone mempool;
 
-								msgpack_object_array arr = obj.via.array;
+					msgpack_zone_init(&mempool, 2048);
 
-								if (arr.size <= 0 || arr.ptr[0].type != MSGPACK_OBJECT_STR) {
-									xRPC_Server_FailedRequest();
-									break;
-								}
+					msgpack_unpack(xRPC_Buffer, xRPC_valread, NULL, &mempool, &obj);
 
-								if (arr.size >= 2 && arr.ptr[1].type != MSGPACK_OBJECT_ARRAY) {
-									xRPC_Server_FailedRequest();
-									break;
-								}
-
-								msgpack_object_str str = arr.ptr[0].via.str;
-								msgpack_object_array* arr2 = NULL;
-
-								if (arr.size >= 2) {
-									arr2 = &arr.ptr[1].via.array;
-								}
-
-								bool foundCallback = false;
-
-								for (int j = 0; j < xRPC_CallBackSize; j++) {
-									if (strcmp(xRPC_CallBackNames[j], str.ptr) != 0) {
-										foundCallback = true;
-										xRPC_CallBackFunctions[j](arr2);
-										break;
-									}
-								}
-
-								if (foundCallback == false) {
-									xRPC_Server_FailedRequest();
-									break;
-								}
-
-							}
-								break;
-							default:
-							case MSGPACK_UNPACK_EXTRA_BYTES:
-							case MSGPACK_UNPACK_CONTINUE:
-							case MSGPACK_UNPACK_PARSE_ERROR:
-							case MSGPACK_UNPACK_NOMEM_ERROR:
-								break;
-						}
-						msgpack_unpacked_destroy(&und);
-					} else {
+					if (obj.type != MSGPACK_OBJECT_ARRAY) {
 						xRPC_Server_FailedRequest();
+						break;
 					}
 
-					msgpack_unpacker_destroy(&unp);
+					msgpack_object_array arr = obj.via.array;
+
+					if (arr.size <= 0 || arr.ptr[0].type != MSGPACK_OBJECT_STR) {
+						xRPC_Server_FailedRequest();
+						break;
+					}
+
+					msgpack_object_str str = arr.ptr[0].via.str;
+					msgpack_object* arg = NULL;
+
+					if (arr.size >= 2) {
+						arg = &arr.ptr[1];
+					}
+
+					bool foundCallback = false;
+
+					printf("Got request for: %s\n", str.ptr);
+
+					for (int j = 0; j < xRPC_CallBackSize; j++) {
+						if (strcmp(xRPC_CallBackNames[j], str.ptr) != 0) {
+							foundCallback = true;
+
+							msgpack_sbuffer sbuf;
+							msgpack_packer pk;
+
+							msgpack_sbuffer_init(&sbuf);
+							msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
+
+							xRPC_CallBackFunctions[j](arg, &pk);
+
+							send(xRPC_sd, sbuf.data, sbuf.size, 0);
+
+							break;
+						}
+					}
+
+					if (foundCallback == false) {
+						xRPC_Server_FailedRequest();
+						break;
+					}
+
+					msgpack_zone_destroy(&mempool);
 				}
 			}
 		}
 	}
 
+	for (int i = 0; i < maxClients; i++) {
+		if (client_socket == 0) {
+			continue;
+		}
+		xRPC_sd = client_socket[i];
+
+		if (FD_ISSET(xRPC_sd, &readfds)) {
+			close(xRPC_sd);
+			client_socket[i] = 0;
+		}
+	}
+
 	close(xRPC_master_socket);
+
+	free(client_socket);
 
 	xRPC_RunServer = false;
 
@@ -213,10 +216,10 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 }
 
 void xRPC_Server_Stop() {
-	xRPC_RunServer = false;
+	xRPC_RunServerLoop = false;
 }
 
-xRPC_Server_Function_Register xRPC_Server_RegisterCallBack(const char* name, msgpack_object* (* callback)(msgpack_object_array*)) {
+xRPC_Server_Function_Register xRPC_Server_RegisterCallBack(const char* name, void(* callback)(msgpack_object*, msgpack_packer*)) {
 	unsigned long nameLength = strlen(name);
 	if (nameLength > 20) {
 		return xRPC_SERVER_FUNCTION_NAME_TOO_LARGE;
@@ -281,15 +284,101 @@ void xRPC_Server_ClearCallbacks() {
 	free(xRPC_CallBackFunctions);
 }
 
-
-void xRPC_Client_Start(unsigned short targetPort, const char* targetIp) {
-
+xRPC_Server_Status xRPC_Server_GetStatus() {
+	return xRPC_RunServerLoop ? xRPC_SERVER_STATUS_ACTIVE : xRPC_SERVER_STATUS_STOPPED;
 }
 
-xRPC_Client_Status xRPC_Client_GetStatus() {
+bool xRPC_RunClient = false;
+int xRPC_sockfd, xRPC_connfd;
+fd_set xRPC_ClientSet;
+struct sockaddr_in xRPC_servaddr, xRPC_cli;
+char xRPC_Client_Buffer[xRPC_BUFFER_SIZE];
+
+xRPC_Client_Status xRPC_Client_Start(unsigned short targetPort, const char* targetIp) {
+	xRPC_sockfd = socket(AF_INET, SOCK_STREAM, 0);
+
+	if (xRPC_sockfd == -1) {
+		perror("socket");
+		return xRPC_CLIENT_STATUS_FAILED;
+	}
+
+	xRPC_servaddr.sin_family = AF_INET;
+	xRPC_servaddr.sin_addr.s_addr = inet_addr(targetIp);
+	xRPC_servaddr.sin_port = htons(targetPort);
+
+	if (connect(xRPC_sockfd, (struct sockaddr*)&xRPC_servaddr, sizeof(xRPC_servaddr)) != 0) {
+		perror("connect");
+		return xRPC_CLIENT_STATUS_FAILED;
+	}
+
+	xRPC_RunClient = true;
+
 	return xRPC_CLIENT_STATUS_ACTIVE;
 }
 
-msgpack_object* xRPC_Client_Call(const char* name, msgpack_object arguments, short timeout) {
-	return NULL;
+void xRPC_Client_Stop() {
+	if (xRPC_RunClient == false) {
+		return;
+	}
+	close(xRPC_sockfd);
+	xRPC_RunClient = false;
+}
+
+msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout) {
+	msgpack_object output;
+	output.type = MSGPACK_OBJECT_NIL;
+	if (xRPC_RunClient == false) {
+		return output;
+	}
+
+	struct timeval schedule;
+	schedule.tv_sec = timeout;
+
+	msgpack_sbuffer sbuf;
+	msgpack_packer pk;
+
+	msgpack_sbuffer_init(&sbuf);
+	msgpack_packer_init(&pk, &sbuf, msgpack_sbuffer_write);
+
+	msgpack_pack_array(&pk, 2);
+
+	msgpack_pack_str(&pk, strlen(name));
+	msgpack_pack_str_body(&pk, name, strlen(name));
+
+	msgpack_object args;
+
+	if (arguments == NULL) {
+		args.type = MSGPACK_OBJECT_NIL;
+	} else {
+		args = *arguments;
+	}
+
+	msgpack_pack_object(&pk, args);
+
+	write(xRPC_sockfd, sbuf.data, sbuf.size);
+	bzero(xRPC_Client_Buffer, xRPC_BUFFER_SIZE);
+	FD_ZERO(&xRPC_ClientSet);
+	FD_SET(xRPC_sockfd, &xRPC_ClientSet);
+
+	xRPC_activity = select(xRPC_sockfd + 1, &xRPC_ClientSet, NULL, NULL, &schedule);
+
+	if (xRPC_activity <= 0) {
+		return output;
+	}
+
+	xRPC_valread = read(xRPC_sockfd, xRPC_Client_Buffer, xRPC_BUFFER_SIZE);
+
+	msgpack_zone mempool;
+
+	msgpack_zone_init(&mempool, 2048);
+
+	msgpack_unpack(xRPC_Client_Buffer, xRPC_valread, NULL, &mempool, &output);
+
+	msgpack_zone_destroy(&mempool);
+
+	return output;
+}
+
+xRPC_Client_Status xRPC_Client_GetStatus() {
+	return xRPC_RunClient ? xRPC_CLIENT_STATUS_ACTIVE : xRPC_CLIENT_STATUS_DISCONNECTED;
 }

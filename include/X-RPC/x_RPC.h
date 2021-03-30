@@ -15,7 +15,8 @@
 
 typedef enum xRPC_Client_Status {
 	xRPC_CLIENT_STATUS_ACTIVE,
-	xRPC_CLIENT_STATUS_DISCONNECTED
+	xRPC_CLIENT_STATUS_DISCONNECTED,
+	xRPC_CLIENT_STATUS_FAILED
 } xRPC_Client_Status;
 
 typedef enum xRPC_Server_Status {
@@ -40,12 +41,14 @@ extern "C" {
 // Public Functions
 xRPC_Server_Status X_RPC_EXPORT xRPC_Server_Start(unsigned short bindPort, const char* bindIp, unsigned short maxClients);
 void X_RPC_EXPORT xRPC_Server_Stop();
-xRPC_Server_Function_Register X_RPC_EXPORT xRPC_Server_RegisterCallBack(const char* name, msgpack_object*(*callback)(msgpack_object_array*));
+xRPC_Server_Function_Register X_RPC_EXPORT xRPC_Server_RegisterCallBack(const char* name, void(*callback)(msgpack_object*, msgpack_packer*));
 void X_RPC_EXPORT xRPC_Server_ClearCallbacks();
+xRPC_Server_Status X_RPC_EXPORT xRPC_Server_GetStatus();
 
-void X_RPC_EXPORT xRPC_Client_Start(unsigned short targetPort, const char* targetIp);
+xRPC_Client_Status X_RPC_EXPORT xRPC_Client_Start(unsigned short targetPort, const char* targetIp);
+void X_RPC_EXPORT xRPC_Client_Stop();
+msgpack_object X_RPC_EXPORT xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout);
 xRPC_Client_Status X_RPC_EXPORT xRPC_Client_GetStatus();
-msgpack_object* X_RPC_EXPORT xRPC_Client_Call(const char* name, msgpack_object arguments, short timeout);
 // Public Functions
 
 #ifdef __cplusplus
