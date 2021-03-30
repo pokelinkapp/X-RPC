@@ -5,11 +5,15 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <unistd.h>
+#include <sys/time.h>
+#ifdef WIN32
+#include <winsock2.h>
+#else
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <sys/time.h>
 #include <netdb.h>
+#endif
 
 #define xRPC_BUFFER_SIZE 4096
 
@@ -24,11 +28,12 @@ int xRPC_master_socket, xRPC_addrlen, xRPC_new_socket,
 int xRPC_max_sd;
 struct sockaddr_in xRPC_address;
 
-typedef void CALLBACK(msgpack_object*, msgpack_packer*);
+
+typedef void xRPC_CALLBACK(msgpack_object*, msgpack_packer*);
 
 size_t xRPC_CallBackSize = 0;
 char** xRPC_CallBackNames;
-CALLBACK** xRPC_CallBackFunctions;
+xRPC_CALLBACK** xRPC_CallBackFunctions;
 
 void xRPC_Server_FailedRequest() {
 	msgpack_sbuffer sbuf;
@@ -111,7 +116,7 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 		}
 
 		if (FD_ISSET(xRPC_master_socket, &readfds)) {
-			if ((xRPC_new_socket = accept(xRPC_master_socket, (struct sockaddr*)&xRPC_address, (socklen_t*)&xRPC_addrlen)) < 0) {
+			if ((xRPC_new_socket = accept(xRPC_master_socket, (struct sockaddr*)&xRPC_address, &xRPC_addrlen)) < 0) {
 				perror("accept");
 				xRPC_RunServer = false;
 				return xRPC_SERVER_STATUS_FAILED;
@@ -243,18 +248,18 @@ xRPC_Server_Function_Register xRPC_Server_RegisterCallBack(const char* name, voi
 
 	if (xRPC_CallBackSize > 1) {
 		char** oldNames = xRPC_CallBackNames;
-		CALLBACK** oldFunctions = xRPC_CallBackFunctions;
+		xRPC_CALLBACK** oldFunctions = xRPC_CallBackFunctions;
 		xRPC_CallBackNames = malloc(xRPC_CallBackSize * sizeof(char*));
-		xRPC_CallBackFunctions = malloc(xRPC_CallBackSize * sizeof(CALLBACK*));
+		xRPC_CallBackFunctions = malloc(xRPC_CallBackSize * sizeof(xRPC_CALLBACK*));
 
 		memcpy(xRPC_CallBackNames, oldNames, (xRPC_CallBackSize - 1) * sizeof(char*));
 		free(oldNames);
 
-		memcpy(xRPC_CallBackFunctions, oldFunctions, (xRPC_CallBackSize - 1) * sizeof(CALLBACK*));
+		memcpy(xRPC_CallBackFunctions, oldFunctions, (xRPC_CallBackSize - 1) * sizeof(xRPC_CALLBACK*));
 		free(oldFunctions);
 	} else {
 		xRPC_CallBackNames = malloc(sizeof(char*));
-		xRPC_CallBackFunctions = malloc(sizeof(CALLBACK*));
+		xRPC_CallBackFunctions = malloc(sizeof(xRPC_CALLBACK*));
 	}
 
 	xRPC_CallBackNames[xRPC_CallBackSize - 1] = malloc(20);
@@ -285,7 +290,7 @@ void xRPC_Server_ClearCallbacks() {
 }
 
 xRPC_Server_Status xRPC_Server_GetStatus() {
-	return xRPC_RunServerLoop ? xRPC_SERVER_STATUS_ACTIVE : xRPC_SERVER_STATUS_STOPPED;
+	return xRPC_RunServerLoop ? xRPC_SERVER_STATUS_ACTIVE : xRPC_RunServer ? xRPC_SERVER_STATUS_STARTING : xRPC_SERVER_STATUS_STOPPED;
 }
 
 bool xRPC_RunClient = false;
@@ -356,7 +361,6 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 	msgpack_pack_object(&pk, args);
 
 	write(xRPC_sockfd, sbuf.data, sbuf.size);
-	bzero(xRPC_Client_Buffer, xRPC_BUFFER_SIZE);
 	FD_ZERO(&xRPC_ClientSet);
 	FD_SET(xRPC_sockfd, &xRPC_ClientSet);
 

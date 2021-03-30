@@ -22,6 +22,7 @@ typedef enum xRPC_Client_Status {
 typedef enum xRPC_Server_Status {
 	xRPC_SERVER_STATUS_ACTIVE,
 	xRPC_SERVER_STATUS_STOPPED,
+	xRPC_SERVER_STATUS_STARTING,
 	xRPC_SERVER_STATUS_FAILED
 } xRPC_Server_Status;
 

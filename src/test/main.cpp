@@ -19,7 +19,7 @@ int main() {
 		printf("RPC Stopped\n");
 	});
 
-	while (xRPC_Server_GetStatus() != xRPC_SERVER_STATUS_ACTIVE) {}
+	sleep(1);
 
 	xRPC_Client_Start(2345, "127.0.0.1");
 
