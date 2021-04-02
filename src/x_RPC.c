@@ -17,6 +17,7 @@
 #include <netinet/in.h>
 #include <netdb.h>
 #include <stdio.h>
+#define SD_BOTH SHUT_RDWR
 #endif
 
 #define xRPC_BUFFER_SIZE 256
@@ -164,11 +165,13 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 					if (xRPC_valread == xRPC_BUFFER_SIZE) {
 						while ((xRPC_valread = recv(xRPC_sd, xRPC_Buffer, xRPC_BUFFER_SIZE, 0)) == xRPC_BUFFER_SIZE) {
 							totalSize += xRPC_valread;
+							char* oldbuffer = midBuff;
 							midBuff = realloc(midBuff, totalSize);
 							for (int i = 0; i < xRPC_valread; i++) {
 								midBuff[pos] = xRPC_Buffer[i];
 								pos++;
 							}
+							free(oldbuffer);
 						}
 						totalSize += xRPC_valread;
 						midBuff = realloc(midBuff, totalSize);
@@ -221,9 +224,9 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 							xRPC_CallBackFunctions[j](arg, &pk);
 
-							msgpack_pack_nil(&pk);
-
 							send(xRPC_sd, sbuf.data, sbuf.size, 0);
+
+							msgpack_sbuffer_destroy(&sbuf);
 
 							break;
 						}
@@ -391,7 +394,7 @@ void xRPC_Client_Stop() {
 	xRPC_RunClient = false;
 }
 
-msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout) {
+msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout, intptr_t* buffLocation) {
 	msgpack_object output;
 	output.type = MSGPACK_OBJECT_NIL;
 	if (xRPC_RunClient == false) {
@@ -422,16 +425,19 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 
 	msgpack_pack_object(&pk, args);
 
-	msgpack_pack_nil(&pk);
-
 	send(xRPC_sockfd, sbuf.data, sbuf.size, 0);
+
+	msgpack_sbuffer_destroy(&sbuf);
 
 	FD_ZERO(&xRPC_ClientSet);
 	FD_SET(xRPC_sockfd, &xRPC_ClientSet);
 
 	xRPC_activity = select(xRPC_sockfd + 1, &xRPC_ClientSet, NULL, NULL, &schedule);
-
+#ifdef WIN32
 	if (xRPC_activity < 0) {
+#else
+	if (xRPC_activity == 0) {
+#endif
 		return output;
 	}
 
@@ -451,18 +457,22 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 	if (xRPC_valread == xRPC_BUFFER_SIZE) {
 		while ((xRPC_valread = recv(xRPC_sockfd, xRPC_Client_Buffer, xRPC_BUFFER_SIZE, 0)) == xRPC_BUFFER_SIZE) {
 			totalSize += xRPC_valread;
+			char* oldbuffer = midBuff;
 			midBuff = realloc(midBuff, totalSize);
 			for (int i = 0; i < xRPC_valread; i++) {
 				midBuff[pos] = xRPC_Client_Buffer[i];
 				pos++;
 			}
+			free(oldbuffer);
 		}
+		char* oldbuffer = midBuff;
 		totalSize += xRPC_valread;
 		midBuff = realloc(midBuff, totalSize);
 		for (int i = 0; i < xRPC_valread; i++) {
 			midBuff[pos] = xRPC_Client_Buffer[i];
 			pos++;
 		}
+		free(oldbuffer);
 	}
 
 	msgpack_zone mempool;
@@ -472,6 +482,8 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 	msgpack_unpack(midBuff, totalSize, NULL, &mempool, &output);
 
 	msgpack_zone_destroy(&mempool);
+
+	buffLocation[0] = (intptr_t)midBuff;
 
 	return output;
 }

@@ -2,15 +2,15 @@
 #include <thread>
 #include <string>
 
+char text[30];
+
 void HelloWorld(msgpack_object* args, msgpack_packer* packer) {
-	auto text = "Hello, World!";
 
-	msgpack_pack_str(packer, strlen(text) + 1);
-	msgpack_pack_str_body(packer, text, strlen(text) + 1);
-}
+	if (args->type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
+		return;
+	}
 
-void HelloWorld2(msgpack_object* args, msgpack_packer* packer) {
-	auto text = "Hello, World!2";
+	sprintf(text, "Hello World %lu", (unsigned long)args->via.u64);
 
 	msgpack_pack_str(packer, strlen(text) + 1);
 	msgpack_pack_str_body(packer, text, strlen(text) + 1);
@@ -18,7 +18,6 @@ void HelloWorld2(msgpack_object* args, msgpack_packer* packer) {
 
 int main() {
 	xRPC_Server_RegisterCallBack("helloWorld", HelloWorld);
-	xRPC_Server_RegisterCallBack("helloWorld2", HelloWorld2);
 
 	auto test = std::thread([]() {
 		printf("RPC Listening\n");
@@ -28,18 +27,24 @@ int main() {
 
 	xRPC_Client_Start(2345, "127.0.0.1");
 
-	auto val = xRPC_Client_Call("helloWorld", nullptr, 10);
+	auto msgObject = msgpack_object();
+	msgObject.type = MSGPACK_OBJECT_POSITIVE_INTEGER;
 
-	if (val.type == MSGPACK_OBJECT_STR) {
-		printf("Got text: %s\n", val.via.str.ptr);
+	intptr_t buffLocation[1];
+
+	for (auto i = 0; i <= 1000000; i++) {
+		msgObject.via.u64 = i;
+		auto val = xRPC_Client_Call("helloWorld", &msgObject, 10, buffLocation);
+
+		if (val.type == MSGPACK_OBJECT_STR) {
+			printf("Got text: %s\n", val.via.str.ptr);
+			free((void*)buffLocation[0]);
+		} else {
+			printf("Did not get a response for %d", i);
+			free((void*)buffLocation[0]);
+			break;
+		}
 	}
-
-	val = xRPC_Client_Call("helloWorld2", nullptr, 10);
-
-	if (val.type == MSGPACK_OBJECT_STR) {
-		printf("Got text: %s\n", val.via.str.ptr);
-	}
-
 	xRPC_Client_Stop();
 	xRPC_Server_Stop();
 

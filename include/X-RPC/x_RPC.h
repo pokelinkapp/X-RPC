@@ -48,7 +48,7 @@ xRPC_Server_Status X_RPC_EXPORT xRPC_Server_GetStatus();
 
 xRPC_Client_Status X_RPC_EXPORT xRPC_Client_Start(unsigned short targetPort, const char* targetIp);
 void X_RPC_EXPORT xRPC_Client_Stop();
-msgpack_object X_RPC_EXPORT xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout);
+msgpack_object X_RPC_EXPORT xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout, intptr_t* buffLocation);
 xRPC_Client_Status X_RPC_EXPORT xRPC_Client_GetStatus();
 // Public Functions
 
