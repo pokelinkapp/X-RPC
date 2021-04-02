@@ -32,12 +32,12 @@ int main() {
 
 	intptr_t buffLocation[1];
 
-	for (auto i = 0; i <= 1000000; i++) {
+	for (auto i = 0; i <= 10000; i++) {
 		msgObject.via.u64 = i;
 		auto val = xRPC_Client_Call("helloWorld", &msgObject, 10, buffLocation);
 
 		if (val.type == MSGPACK_OBJECT_STR) {
-			printf("Got text: %s\n", val.via.str.ptr);
+			printf("Got text: %s\r", val.via.str.ptr);
 			free((void*)buffLocation[0]);
 		} else {
 			printf("Did not get a response for %d", i);

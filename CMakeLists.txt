@@ -15,8 +15,9 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-if(NOT X-RPC_Test_enabled AND ${CMAKE_BUILD_TYPE} STREQUAL "Debug")
+if(NOT X-RPC_Test_enabled)
     set(X-RPC_Test_enabled ON)
+    set(BUILD_SHARED_LIBS "OFF")
 endif()
 
 include_directories(
