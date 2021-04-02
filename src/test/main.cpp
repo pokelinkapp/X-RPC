@@ -27,6 +27,8 @@ int main() {
 
 	xRPC_Client_Start(2345, "127.0.0.1");
 
+	while (xRPC_Server_GetStatus() != xRPC_SERVER_STATUS_ACTIVE) {}
+
 	auto msgObject = msgpack_object();
 	msgObject.type = MSGPACK_OBJECT_POSITIVE_INTEGER;
 
@@ -40,11 +42,12 @@ int main() {
 			printf("Got text: %s\r", val.via.str.ptr);
 			free((void*)buffLocation[0]);
 		} else {
-			printf("Did not get a response for %d", i);
+			printf("Did not get a response for %d\n", i);
 			free((void*)buffLocation[0]);
 			break;
 		}
 	}
+	printf("\n");
 	xRPC_Client_Stop();
 	xRPC_Server_Stop();
 

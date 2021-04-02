@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.17)
 project(X_RPC)
 
-set(CMAKE_C_STANDARD 98)
+set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
 
 set(MSGPACK_BUILD_TESTS OFF)
