@@ -7,6 +7,10 @@ endif()
 add_library(X-RPC ${X_RPC_COMPILE_TYPE} x_RPC.c)
 target_link_libraries(X-RPC msgpackc)
 
+if(CMAKE_HOST_WIN32)
+    target_link_libraries(X-RPC ws2_32)
+endif()
+
 if(NOT CMAKE_HOST_WIN32 AND "${OS}" STREQUAL "Win32")
     target_link_libraries(X-RPC ws2_32)
 endif()

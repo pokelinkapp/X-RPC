@@ -1,21 +1,25 @@
 #include "X-RPC/x_RPC.h"
 
-#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+
+#ifdef WIN32
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#else
 #include <unistd.h>
 #include <sys/time.h>
-#ifdef WIN32
-#include <winsock2.h>
-#else
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netdb.h>
+#include <stdio.h>
 #endif
 
-#define xRPC_BUFFER_SIZE 4096
+#define xRPC_BUFFER_SIZE 256
 
 char xRPC_Buffer[xRPC_BUFFER_SIZE];
 
@@ -27,6 +31,7 @@ int xRPC_master_socket, xRPC_addrlen, xRPC_new_socket,
 		xRPC_activity, xRPC_valread, xRPC_sd;
 int xRPC_max_sd;
 struct sockaddr_in xRPC_address;
+struct timeval xRPC_Timeout;
 
 
 typedef void xRPC_CALLBACK(msgpack_object*, msgpack_packer*);
@@ -47,11 +52,12 @@ void xRPC_Server_FailedRequest() {
 	send(xRPC_sd, sbuf.data, sbuf.size, 0);
 }
 
-
 xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp, unsigned short maxClients) {
 	if (xRPC_RunServer) {
 		return xRPC_SERVER_STATUS_ACTIVE;
 	}
+
+	xRPC_Timeout.tv_sec = 2;
 
 	xRPC_RunServer = true;
 
@@ -63,12 +69,19 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 	fd_set readfds;
 
-	if ((xRPC_master_socket = socket(AF_INET, SOCK_STREAM, getprotobyname("tcp")->p_proto)) == 0) {
+#ifdef WIN32
+	WSADATA wsaData;
+	WORD mVersionRequested = MAKEWORD(2, 2);
+	WSAStartup(mVersionRequested, &wsaData);
+#endif
+	if ((xRPC_master_socket = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+		xRPC_RunServer = false;
 		perror("socket failed");
 		return xRPC_SERVER_STATUS_FAILED;
 	}
 
 	if (setsockopt(xRPC_master_socket, SOL_SOCKET, SO_REUSEADDR, (char*)&xRPC_opt, sizeof(xRPC_opt)) < 0) {
+		xRPC_RunServer = false;
 		perror("setsockopt");
 		return xRPC_SERVER_STATUS_FAILED;
 	}
@@ -78,11 +91,13 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 	xRPC_address.sin_port = htons(bindPort);
 
 	if (bind(xRPC_master_socket, (struct sockaddr*)&xRPC_address, sizeof(xRPC_address)) < 0) {
+		xRPC_RunServer = false;
 		perror("bind failed");
 		return xRPC_SERVER_STATUS_FAILED;
 	}
 
 	if (listen(xRPC_master_socket, 5) < 0) {
+		xRPC_RunServer = false;
 		perror("listen");
 		return xRPC_SERVER_STATUS_FAILED;
 	}
@@ -109,7 +124,7 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 			}
 		}
 
-		xRPC_activity = select(xRPC_max_sd + 1, &readfds, NULL, NULL, 0);
+		xRPC_activity = select(xRPC_max_sd + 1, &readfds, NULL, NULL, &xRPC_Timeout);
 
 		if (xRPC_activity <= 0) {
 			continue;
@@ -119,6 +134,7 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 			if ((xRPC_new_socket = accept(xRPC_master_socket, (struct sockaddr*)&xRPC_address, &xRPC_addrlen)) < 0) {
 				perror("accept");
 				xRPC_RunServer = false;
+				shutdown(xRPC_master_socket, SD_BOTH);
 				return xRPC_SERVER_STATUS_FAILED;
 			}
 
@@ -134,10 +150,33 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 			xRPC_sd = client_socket[i];
 
 			if (FD_ISSET(xRPC_sd, &readfds)) {
-				if ((xRPC_valread = read(xRPC_sd, xRPC_Buffer, xRPC_BUFFER_SIZE)) == 0) {
-					close(xRPC_sd);
+				if ((xRPC_valread = recv(xRPC_sd, xRPC_Buffer, xRPC_BUFFER_SIZE, 0)) == 0) {
+					shutdown(xRPC_sd, SD_BOTH);
 					client_socket[i] = 0;
 				} else {
+
+					char* midBuff = malloc(xRPC_valread);
+					long totalSize = xRPC_valread;
+					long pos = xRPC_valread;
+
+					memcpy(midBuff, xRPC_Buffer, xRPC_valread);
+
+					if (xRPC_valread == xRPC_BUFFER_SIZE) {
+						while ((xRPC_valread = recv(xRPC_sd, xRPC_Buffer, xRPC_BUFFER_SIZE, 0)) == xRPC_BUFFER_SIZE) {
+							totalSize += xRPC_valread;
+							midBuff = realloc(midBuff, totalSize);
+							for (int i = 0; i < xRPC_valread; i++) {
+								midBuff[pos] = xRPC_Buffer[i];
+								pos++;
+							}
+						}
+						totalSize += xRPC_valread;
+						midBuff = realloc(midBuff, totalSize);
+						for (int i = 0; i < xRPC_valread; i++) {
+							midBuff[pos] = xRPC_Buffer[i];
+							pos++;
+						}
+					}
 
 					msgpack_object obj;
 
@@ -145,9 +184,10 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 					msgpack_zone_init(&mempool, 2048);
 
-					msgpack_unpack(xRPC_Buffer, xRPC_valread, NULL, &mempool, &obj);
+					msgpack_unpack(midBuff, totalSize, NULL, &mempool, &obj);
 
 					if (obj.type != MSGPACK_OBJECT_ARRAY) {
+						free(midBuff);
 						xRPC_Server_FailedRequest();
 						break;
 					}
@@ -155,6 +195,7 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 					msgpack_object_array arr = obj.via.array;
 
 					if (arr.size <= 0 || arr.ptr[0].type != MSGPACK_OBJECT_STR) {
+						free(midBuff);
 						xRPC_Server_FailedRequest();
 						break;
 					}
@@ -168,10 +209,8 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 					bool foundCallback = false;
 
-					printf("Got request for: %s\n", str.ptr);
-
 					for (int j = 0; j < xRPC_CallBackSize; j++) {
-						if (strcmp(xRPC_CallBackNames[j], str.ptr) != 0) {
+						if (strncmp(xRPC_CallBackNames[j], str.ptr, str.size) == 0) {
 							foundCallback = true;
 
 							msgpack_sbuffer sbuf;
@@ -187,6 +226,8 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 							break;
 						}
 					}
+
+					free(midBuff);
 
 					if (foundCallback == false) {
 						xRPC_Server_FailedRequest();
@@ -206,12 +247,18 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 		xRPC_sd = client_socket[i];
 
 		if (FD_ISSET(xRPC_sd, &readfds)) {
+#ifndef WIN32
 			close(xRPC_sd);
+#endif
 			client_socket[i] = 0;
 		}
 	}
 
+#ifdef WIN32
+	WSACleanup();
+#else
 	close(xRPC_master_socket);
+#endif
 
 	free(client_socket);
 
@@ -294,12 +341,21 @@ xRPC_Server_Status xRPC_Server_GetStatus() {
 }
 
 bool xRPC_RunClient = false;
+char xRPC_Client_Buffer[xRPC_BUFFER_SIZE];
 int xRPC_sockfd, xRPC_connfd;
 fd_set xRPC_ClientSet;
 struct sockaddr_in xRPC_servaddr, xRPC_cli;
-char xRPC_Client_Buffer[xRPC_BUFFER_SIZE];
 
 xRPC_Client_Status xRPC_Client_Start(unsigned short targetPort, const char* targetIp) {
+	if (xRPC_RunClient) {
+		return xRPC_CLIENT_STATUS_ACTIVE;
+	}
+#ifdef WIN32
+	WSADATA wsaData;
+	WORD mVersionRequested = MAKEWORD(2, 2);
+	WSAStartup(mVersionRequested, &wsaData);
+#endif
+
 	xRPC_sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
 	if (xRPC_sockfd == -1) {
@@ -325,7 +381,11 @@ void xRPC_Client_Stop() {
 	if (xRPC_RunClient == false) {
 		return;
 	}
+#ifdef WIN32
+	WSACleanup();
+#else
 	close(xRPC_sockfd);
+#endif
 	xRPC_RunClient = false;
 }
 
@@ -360,23 +420,52 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 
 	msgpack_pack_object(&pk, args);
 
-	write(xRPC_sockfd, sbuf.data, sbuf.size);
+	send(xRPC_sockfd, sbuf.data, sbuf.size, 0);
+
 	FD_ZERO(&xRPC_ClientSet);
 	FD_SET(xRPC_sockfd, &xRPC_ClientSet);
 
 	xRPC_activity = select(xRPC_sockfd + 1, &xRPC_ClientSet, NULL, NULL, &schedule);
 
-	if (xRPC_activity <= 0) {
+	if (xRPC_activity < 0) {
 		return output;
 	}
 
-	xRPC_valread = read(xRPC_sockfd, xRPC_Client_Buffer, xRPC_BUFFER_SIZE);
+	xRPC_valread = recv(xRPC_sockfd, xRPC_Client_Buffer, xRPC_BUFFER_SIZE, 0);
+
+	if (xRPC_valread == 0) {
+		xRPC_Client_Stop();
+		return output;
+	}
+
+	char* midBuff = malloc(xRPC_valread);
+	size_t totalSize = xRPC_valread;
+	long pos = xRPC_valread;
+
+	memcpy(midBuff, xRPC_Client_Buffer, xRPC_valread);
+
+	if (xRPC_valread == xRPC_BUFFER_SIZE) {
+		while ((xRPC_valread = recv(xRPC_sockfd, xRPC_Client_Buffer, xRPC_BUFFER_SIZE, 0)) == xRPC_BUFFER_SIZE) {
+			totalSize += xRPC_valread;
+			midBuff = realloc(midBuff, totalSize);
+			for (int i = 0; i < xRPC_valread; i++) {
+				midBuff[pos] = xRPC_Client_Buffer[i];
+				pos++;
+			}
+		}
+		totalSize += xRPC_valread;
+		midBuff = realloc(midBuff, totalSize);
+		for (int i = 0; i < xRPC_valread; i++) {
+			midBuff[pos] = xRPC_Client_Buffer[i];
+			pos++;
+		}
+	}
 
 	msgpack_zone mempool;
 
 	msgpack_zone_init(&mempool, 2048);
 
-	msgpack_unpack(xRPC_Client_Buffer, xRPC_valread, NULL, &mempool, &output);
+	msgpack_unpack(midBuff, totalSize, NULL, &mempool, &output);
 
 	msgpack_zone_destroy(&mempool);
 
