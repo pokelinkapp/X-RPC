@@ -221,6 +221,8 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 							xRPC_CallBackFunctions[j](arg, &pk);
 
+							msgpack_pack_nil(&pk);
+
 							send(xRPC_sd, sbuf.data, sbuf.size, 0);
 
 							break;
@@ -407,8 +409,8 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 
 	msgpack_pack_array(&pk, 2);
 
-	msgpack_pack_str(&pk, strlen(name));
-	msgpack_pack_str_body(&pk, name, strlen(name));
+	msgpack_pack_str(&pk, strlen(name) + 1);
+	msgpack_pack_str_body(&pk, name, strlen(name) + 1);
 
 	msgpack_object args;
 
@@ -419,6 +421,8 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 	}
 
 	msgpack_pack_object(&pk, args);
+
+	msgpack_pack_nil(&pk);
 
 	send(xRPC_sockfd, sbuf.data, sbuf.size, 0);
 

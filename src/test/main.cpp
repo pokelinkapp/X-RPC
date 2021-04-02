@@ -1,18 +1,19 @@
 #include "X-RPC/x_RPC.h"
 #include <thread>
+#include <string>
 
 void HelloWorld(msgpack_object* args, msgpack_packer* packer) {
 	auto text = "Hello, World!";
 
-	msgpack_pack_str(packer, strlen(text));
-	msgpack_pack_str_body(packer, text, strlen(text));
+	msgpack_pack_str(packer, strlen(text) + 1);
+	msgpack_pack_str_body(packer, text, strlen(text) + 1);
 }
 
 void HelloWorld2(msgpack_object* args, msgpack_packer* packer) {
 	auto text = "Hello, World!2";
 
-	msgpack_pack_str(packer, strlen(text));
-	msgpack_pack_str_body(packer, text, strlen(text));
+	msgpack_pack_str(packer, strlen(text) + 1);
+	msgpack_pack_str_body(packer, text, strlen(text) + 1);
 }
 
 int main() {
@@ -30,15 +31,13 @@ int main() {
 	auto val = xRPC_Client_Call("helloWorld", nullptr, 10);
 
 	if (val.type == MSGPACK_OBJECT_STR) {
-		auto str = std::string(val.via.str.ptr, val.via.str.size);
-		printf("Got text: %s\n", str.c_str());
+		printf("Got text: %s\n", val.via.str.ptr);
 	}
 
 	val = xRPC_Client_Call("helloWorld2", nullptr, 10);
 
 	if (val.type == MSGPACK_OBJECT_STR) {
-		auto str = std::string(val.via.str.ptr, val.via.str.size);
-		printf("Got text: %s\n", str.c_str());
+		printf("Got text: %s\n", val.via.str.ptr);
 	}
 
 	xRPC_Client_Stop();
