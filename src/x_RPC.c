@@ -394,9 +394,9 @@ void xRPC_Client_Stop() {
 	xRPC_RunClient = false;
 }
 
-msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout, intptr_t* buffLocation) {
-	msgpack_object output;
-	output.type = MSGPACK_OBJECT_NIL;
+xRPC_Package xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout) {
+	xRPC_Package output;
+	output.data.type = MSGPACK_OBJECT_NIL;
 	if (xRPC_RunClient == false) {
 		return output;
 	}
@@ -448,46 +448,48 @@ msgpack_object xRPC_Client_Call(const char* name, msgpack_object* arguments, sho
 		return output;
 	}
 
-	char* midBuff = malloc(xRPC_valread);
+	output.buffer = malloc(xRPC_valread);
 	size_t totalSize = xRPC_valread;
 	long pos = xRPC_valread;
 
-	memcpy(midBuff, xRPC_Client_Buffer, xRPC_valread);
+	memcpy(output.buffer, xRPC_Client_Buffer, xRPC_valread);
 
 	if (xRPC_valread == xRPC_BUFFER_SIZE) {
 		while ((xRPC_valread = recv(xRPC_sockfd, xRPC_Client_Buffer, xRPC_BUFFER_SIZE, 0)) == xRPC_BUFFER_SIZE) {
 			totalSize += xRPC_valread;
-			char* oldbuffer = midBuff;
-			midBuff = realloc(midBuff, totalSize);
+			char* oldBuffer = output.buffer;
+			output.buffer = realloc(output.buffer, totalSize);
 			for (int i = 0; i < xRPC_valread; i++) {
-				midBuff[pos] = xRPC_Client_Buffer[i];
+				output.buffer[pos] = xRPC_Client_Buffer[i];
 				pos++;
 			}
-			free(oldbuffer);
+			free(oldBuffer);
 		}
-		char* oldbuffer = midBuff;
+		char* oldBuffer = output.buffer;
 		totalSize += xRPC_valread;
-		midBuff = realloc(midBuff, totalSize);
+		output.buffer = realloc(output.buffer, totalSize);
 		for (int i = 0; i < xRPC_valread; i++) {
-			midBuff[pos] = xRPC_Client_Buffer[i];
+			output.buffer[pos] = xRPC_Client_Buffer[i];
 			pos++;
 		}
-		free(oldbuffer);
+		free(oldBuffer);
 	}
 
 	msgpack_zone mempool;
 
 	msgpack_zone_init(&mempool, 2048);
 
-	msgpack_unpack(midBuff, totalSize, NULL, &mempool, &output);
+	msgpack_unpack(output.buffer, totalSize, NULL, &mempool, &output.data);
 
 	msgpack_zone_destroy(&mempool);
-
-	buffLocation[0] = (intptr_t)midBuff;
 
 	return output;
 }
 
 xRPC_Client_Status xRPC_Client_GetStatus() {
 	return xRPC_RunClient ? xRPC_CLIENT_STATUS_ACTIVE : xRPC_CLIENT_STATUS_DISCONNECTED;
+}
+
+void xRPC_Destroy_Package(xRPC_Package* package) {
+	free(package->buffer);
 }

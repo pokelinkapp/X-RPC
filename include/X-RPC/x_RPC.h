@@ -34,6 +34,11 @@ typedef enum xRPC_Server_Function_Register {
 	xRPC_SERVER_FUNCTION_NAME_EXISTS
 } xRPC_Server_Function_Register;
 
+typedef struct xRPC_Package {
+	msgpack_object data;
+	char* buffer;
+} xRPC_Package;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -48,8 +53,9 @@ xRPC_Server_Status X_RPC_EXPORT xRPC_Server_GetStatus();
 
 xRPC_Client_Status X_RPC_EXPORT xRPC_Client_Start(unsigned short targetPort, const char* targetIp);
 void X_RPC_EXPORT xRPC_Client_Stop();
-msgpack_object X_RPC_EXPORT xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout, intptr_t* buffLocation);
+xRPC_Package X_RPC_EXPORT xRPC_Client_Call(const char* name, msgpack_object* arguments, short timeout);
 xRPC_Client_Status X_RPC_EXPORT xRPC_Client_GetStatus();
+void X_RPC_EXPORT xRPC_Destroy_Package(xRPC_Package* package);
 // Public Functions
 
 #ifdef __cplusplus

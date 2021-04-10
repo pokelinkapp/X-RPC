@@ -32,18 +32,16 @@ int main() {
 	auto msgObject = msgpack_object();
 	msgObject.type = MSGPACK_OBJECT_POSITIVE_INTEGER;
 
-	intptr_t buffLocation[1];
-
 	for (auto i = 0; i <= 10000; i++) {
 		msgObject.via.u64 = i;
-		auto val = xRPC_Client_Call("helloWorld", &msgObject, 10, buffLocation);
+		auto val = xRPC_Client_Call("helloWorld", &msgObject, 10);
 
-		if (val.type == MSGPACK_OBJECT_STR) {
-			printf("Got text: %s\r", val.via.str.ptr);
-			free((void*)buffLocation[0]);
+		if (val.data.type == MSGPACK_OBJECT_STR) {
+			printf("Got text: %s\r", val.data.via.str.ptr);
+			xRPC_Destroy_Package(&val);
 		} else {
 			printf("Did not get a response for %d\n", i);
-			free((void*)buffLocation[0]);
+			xRPC_Destroy_Package(&val);
 			break;
 		}
 	}
