@@ -339,6 +339,8 @@ void xRPC_Server_ClearCallbacks() {
 
 	free(xRPC_CallBackNames);
 	free(xRPC_CallBackFunctions);
+
+	xRPC_CallBackSize = 0;
 }
 
 xRPC_Server_Status xRPC_Server_GetStatus() {
