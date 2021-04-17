@@ -25,9 +25,9 @@ int main() {
 		printf("RPC Stopped\n");
 	});
 
-	xRPC_Client_Start(2345, "127.0.0.1");
-
 	while (xRPC_Server_GetStatus() != xRPC_SERVER_STATUS_ACTIVE) {}
+
+	xRPC_Client_Start(2345, "127.0.0.1");
 
 	auto msgObject = msgpack_object();
 	msgObject.type = MSGPACK_OBJECT_POSITIVE_INTEGER;
