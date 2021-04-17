@@ -12,23 +12,23 @@ Example Server:
 char text[30];
 
 void HelloWorld(msgpac_object* args, msgpack_packer* packer) {
-	xRPC_Server_Stop();
-	if (args->type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
-		return;
-	}
+    xRPC_Server_Stop();
+    if (args->type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
+        return;
+    }
 
-	sprintf(text, "Hello World %lu", (unsigned long)args->via.u64);
+    sprintf(text, "Hello World %lu", (unsigned long)args->via.u64);
 
-	msgpack_pack_str(packer, strlen(text) + 1);
-	msgpack_pack_str_body(packer, text, strlen(text) + 1);
+    msgpack_pack_str(packer, strlen(text) + 1);
+    msgpack_pack_str_body(packer, text, strlen(text) + 1);
 }
 
 int main() {
-	xRPC_Server_RegisterCallBack("helloWorld", HelloWorld);
+    xRPC_Server_RegisterCallBack("helloWorld", HelloWorld);
 	
-	xRPC_Server_Start(2345, "127.0.0.1", 20);
+    xRPC_Server_Start(2345, "127.0.0.1", 20);
 	
-	xRPC_Server_ClearCallbacks()
+    xRPC_Server_ClearCallbacks()
 }
 ```
 
@@ -36,17 +36,16 @@ Example client:
 
 ```c
 int main() {
-	xRPC_Client_Start(2345, "127.0.0.1");
+    xRPC_Client_Start(2345, "127.0.0.1");
 	
-	auto msgObject = msgpack_object();
+    auto msgObject = msgpack_object();
 	
-	msgObject.type = MSGPACK_OBJECT_POSITIVE_INTEGER;
+    msgObject.type = MSGPACK_OBJECT_POSITIVE_INTEGER;
 	
-	msgObject.via.u64 = 200;
+    msgObject.via.u64 = 200;
+    msgpack_object val = xRPC_Client_Call("helloWorld", &msgobject, 10);
 	
-	msgpack_object val = xRPC_Client_Call("helloWorld", &msgobject, 10);
-	
-	if (val.data.type == MSGPACK_OBJECT_STR) {
+    if (val.data.type == MSGPACK_OBJECT_STR) {
         printf("Got text: %s\r", val.data.via.str.ptr);
         xRPC_Destroy_Package(&val);
     } else {
@@ -54,6 +53,6 @@ int main() {
         xRPC_Destroy_Package(&val);
     }
 	
-	xRPC_Client_Stop();
+    xRPC_Client_Stop();
 }
 ```
