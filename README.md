@@ -11,7 +11,7 @@ Example Server:
 ```c
 char text[30];
 
-void HelloWorld(msgpac_object* args, msgpack_packer* packer) {
+void HelloWorld(msgpack_object* args, msgpack_packer* packer) {
     xRPC_Server_Stop();
     if (args->type != MSGPACK_OBJECT_POSITIVE_INTEGER) {
         return;
