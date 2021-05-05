@@ -11,11 +11,12 @@ if(CMAKE_HOST_WIN32)
     target_link_libraries(X-RPC ws2_32)
 endif()
 
-if(NOT CMAKE_HOST_WIN32 AND "${OS}" STREQUAL "Win32")
+if("${OS}" STREQUAL "Win32")
+    add_definitions(-DWIN32)
     target_link_libraries(X-RPC ws2_32)
 endif()
 
-if(X-RPC_Test_enabled)
+if("${X-RPC_Test_enabled}" STREQUAL "ON")
     add_executable(X-RPC_test test/main.cpp)
     target_link_libraries(X-RPC_test X-RPC)
 
@@ -23,7 +24,7 @@ if(X-RPC_Test_enabled)
         target_link_libraries(X-RPC_test pthread)
     endif()
 
-    if(NOT CMAKE_HOST_WIN32 AND "${OS}" STREQUAL "Win32")
+    if(NOT CMAKE_HOST_WIN32)
         target_link_options(X-RPC_test PUBLIC -static -static-libgcc -static-libstdc++)
     endif()
 endif()

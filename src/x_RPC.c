@@ -27,7 +27,7 @@ char xRPC_Buffer[xRPC_BUFFER_SIZE];
 bool xRPC_RunServer = false;
 bool xRPC_RunServerLoop = false;
 
-int xRPC_opt = true;
+int xRPC_opt = 1;
 int xRPC_master_socket, xRPC_addrlen, xRPC_new_socket,
 		xRPC_activity, xRPC_valread, xRPC_sd;
 int xRPC_max_sd;
@@ -267,13 +267,12 @@ xRPC_Server_Status xRPC_Server_Start(unsigned short bindPort, const char* bindIp
 
 	free(client_socket);
 
-	xRPC_RunServer = false;
-
 	return xRPC_SERVER_STATUS_STOPPED;
 }
 
 void xRPC_Server_Stop() {
 	xRPC_RunServerLoop = false;
+	xRPC_RunServer = false;
 }
 
 xRPC_Server_Function_Register xRPC_Server_RegisterCallBack(const char* name, void(* callback)(msgpack_object*, msgpack_packer*)) {

@@ -16,7 +16,7 @@ void HelloWorld(msgpack_object* args, msgpack_packer* packer) {
 	msgpack_pack_str_body(packer, text, strlen(text) + 1);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
 	xRPC_Server_RegisterCallBack("helloWorld", HelloWorld);
 
 	auto test = std::thread([]() {
